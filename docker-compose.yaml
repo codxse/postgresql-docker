@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    ports:
+      - "54345:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pgadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-strongpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-myapp}
+      # Enable SSL
+      POSTGRES_SSL: "on"
+      POSTGRES_SSL_CERT_FILE: "/etc/postgresql/certs/server.crt"
+      POSTGRES_SSL_KEY_FILE: "/etc/postgresql/certs/server.key"
+      POSTGRES_SSL_CA_FILE: "/etc/postgresql/certs/ca.crt"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./ssl:/etc/postgresql/certs
+      - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - postgres_network
+    restart: unless-stopped
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    sysctls:
+      - kernel.shmmax=8589934592
+      - kernel.shmall=2097152
+      - net.core.somaxconn=1000
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+  setup:
+    image: alpine
+    volumes:
+      - ./ssl:/ssl
+    command: >
+      sh -c "
+        chown -R 70:70 /ssl &&
+        chmod 600 /ssl/server.key &&
+        chmod 644 /ssl/server.crt /ssl/ca.crt
+      "
+
+networks:
+  postgres_network:
+    driver: bridge
+    name: postgres_network
+
+volumes:
+  postgres_data:
