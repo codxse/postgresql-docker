@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Backup configuration
+BACKUP_DIR="/path/to/local/backup"
+POSTGRES_CONTAINER="your-postgres-container-name"
+DB_USER=""
+DB_PASSWORD=""
+DB_NAME="your_database_name"
+BACKUP_RETENTION_DAYS=7
+
+# Remote backup configuration
+REMOTE_USER="backup_user"
+REMOTE_HOST="your.backup.server"
+REMOTE_DIR="/path/to/remote/backup"
+
+# Create timestamp
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILENAME="postgres_${DB_NAME}_${TIMESTAMP}.sql.gz"
+
+# Ensure backup directory exists
+mkdir -p ${BACKUP_DIR}
+
+# Create backup
+echo "Starting backup of ${DB_NAME}"
+docker exec -e PGPASSWORD="${DB_PASSWORD}" ${POSTGRES_CONTAINER} \
+    pg_dump -h localhost -U ${DB_USER} ${DB_NAME} | gzip > ${BACKUP_DIR}/${BACKUP_FILENAME}
+
+# Check if backup was successful
+if [ $? -eq 0 ]; then
+    echo "Database backup completed: ${BACKUP_FILENAME}"
+    
+    # Sync to remote backup server
+    rsync -avz --remove-source-files ${BACKUP_DIR}/${BACKUP_FILENAME} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/
+    
+    # Clean up old backups (both local and remote)
+    find ${BACKUP_DIR} -type f -name "postgres_${DB_NAME}_*.sql.gz" -mtime +${BACKUP_RETENTION_DAYS} -delete
+    ssh ${REMOTE_USER}@${REMOTE_HOST} "find ${REMOTE_DIR} -type f -name 'postgres_${DB_NAME}_*.sql.gz' -mtime +${BACKUP_RETENTION_DAYS} -delete"
+else
+    echo "Error creating backup ${BACKUP_FILENAME}"
+    exit 1
+fi
